@@ -254,16 +254,55 @@ export async function fetchSubmissionImage(
   }
 }
 
+export interface ThemeApiResponse extends ApiSubmission {
+  affected: number;
+  relayShare: number;
+  sampleQuotes: string[];
+}
+
+export function themeFromApi(theme: ThemeApiResponse): Cluster {
+  const cluster = submissionToTheme(theme);
+  return {
+    ...cluster,
+    affected: theme.affected,
+    relayShare: theme.relayShare,
+    sampleQuotes: theme.sampleQuotes.length ? theme.sampleQuotes : cluster.sampleQuotes,
+  };
+}
+
+// Backend groups submissions by similarity before returning them (issue
+// #30) — multiple citizens reporting the same/similar issue collapse into
+// one theme with an incremented voice count, rather than each staying its
+// own permanently separate card.
 export async function fetchSubmissionThemes(): Promise<{
   themes: Cluster[];
   error: string | null;
 }> {
-  const result = await fetchSubmissions();
-  if (!result.ok) {
-    return { themes: [], error: result.error };
+  try {
+    const res = await fetchWithTimeout("/api/submissions/themes", { cache: "no-store" });
+    const body = await res.text();
+
+    if (!res.ok) {
+      console.error(
+        `[submissions] GET /api/submissions/themes failed: ${res.status}`,
+        body,
+      );
+      return { themes: [], error: `Failed to fetch submission themes (${res.status})` };
+    }
+
+    let data: unknown;
+    try {
+      data = JSON.parse(body);
+    } catch {
+      console.error("[submissions] GET /api/submissions/themes returned invalid JSON:", body);
+      return { themes: [], error: "Invalid submission themes response" };
+    }
+
+    const themes = Array.isArray(data) ? (data as ThemeApiResponse[]) : [];
+    return { themes: themes.map(themeFromApi), error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not fetch submission themes";
+    console.error("[submissions] fetch error:", message);
+    return { themes: [], error: message };
   }
-  return {
-    themes: result.submissions.map(submissionToTheme),
-    error: null,
-  };
 }

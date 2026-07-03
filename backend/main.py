@@ -24,6 +24,7 @@ from gemini_service import classify_issue, default_classification
 from groq_service import analyze_issue, default_analysis
 from sarvam_service import parse_audio_data_url, transcribe_audio
 from store_service import act_on_cluster, get_clusters, get_showcase, submit_voice
+from theme_service import group_into_themes
 from ts_bridge import warm_bridge
 
 load_dotenv()
@@ -210,6 +211,23 @@ async def get_submissions() -> list[dict[str, Any]]:
             status_code=_runtime_error_status(message, firebase=True),
             detail=message,
         ) from exc
+
+
+@app.get("/api/submissions/themes")
+async def get_submission_themes() -> list[dict[str, Any]]:
+    """Groups real citizen submissions by similarity so multiple people
+    reporting the same/similar issue collapse into one theme with an
+    incremented voice count (issue #30), instead of each staying its own
+    permanently separate card."""
+    try:
+        submissions = await asyncio.to_thread(list_submissions)
+    except RuntimeError as exc:
+        message = str(exc)
+        raise HTTPException(
+            status_code=_runtime_error_status(message, firebase=True),
+            detail=message,
+        ) from exc
+    return group_into_themes(submissions)
 
 
 @app.get("/api/submissions/{submission_id}")
